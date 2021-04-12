@@ -9,7 +9,10 @@
 using namespace std;
 using namespace chrono;
 
-constexpr int MAX_STEPS = 300;
+static constexpr int MAX_STEPS = 300;
+
+static constexpr int FIELD_WIDTH = 12;
+static constexpr int FIELD_HEIGHT = 9;
 
 /******************************************** logging *****************************************************************/
 #ifdef LOCAL_RUN
@@ -25,7 +28,7 @@ struct LogObj {
 };
 
 template<typename T>
-inline LogObj& operator<<(LogObj &out, const T &val) {
+inline LogObj &operator<<(LogObj &out, const T &val) {
     out.out << val;
     return out;
 }
@@ -105,12 +108,16 @@ struct Cell {
     bool operator==(const Cell &right) const {
         return row == right.row && col == right.col;
     }
+
+    bool isInFieldBounds() const {
+        return row >= 0 && row < FIELD_HEIGHT && col >= 0 && col < FIELD_WIDTH;
+    }
 };
 
 template<>
 struct std::hash<Cell> {
-    size_t operator()(const Cell& cell) const {
-        return ((size_t)cell.row << 32) + cell.col;
+    size_t operator()(const Cell &cell) const {
+        return ((size_t) cell.row << 32) + cell.col;
     }
 };
 
@@ -139,8 +146,12 @@ struct Entity {
     /* const */ int ownerId;
     /* const */ EntityType type;
 
+    static int idOf(const int ownerId, const EntityType type, bool isSecond = false) {
+        return (ownerId << 3) + (int) type + (int) isSecond;
+    }
+
     Entity(const int ownerId, const EntityType type, bool isSecond = false) :
-            id((ownerId << 3) + (int) type + (int) isSecond),
+            id(idOf(ownerId, type, isSecond)),
             ownerId(ownerId),
             type(type) {}
 };
@@ -152,9 +163,6 @@ struct CellInfo {
     /*const*/ bool hasHouse = false;
     Entity entity = NONE_ENTITY;
 };
-
-static constexpr int FIELD_WIDTH = 12;
-static constexpr int FIELD_HEIGHT = 9;
 
 struct Field {
     /*const*/ unordered_set<Cell> houses;
@@ -172,6 +180,7 @@ struct Field {
     void set(const int row, const int col, const Entity entity) {
         set(Cell{row, col}, entity);
     }
+
     void set(const Cell cell, const Entity entity) {
         (*this)[cell].entity = entity;
 
@@ -180,12 +189,104 @@ struct Field {
     }
 
     bool checkMove(const Move move) {
-        //TODO
-        return true;
+        // NONE_MOVE is always allowed
+        if (move == NONE_MOVE) return true;
+
+        // Standing on a cell is always disallowed
+        if (move.from == move.to) return false;
+
+        // From and to must be valid cells
+        if (!move.from.isInFieldBounds() || !move.to.isInFieldBounds()) return false;
+
+        // Moving from a house is disallowed
+        if ((*this)[move.from].hasHouse) return false;
+
+        const bool targetIsHouse = (*this)[move.to].hasHouse;
+
+        // Moving to occupied house is disallowed
+        if (targetIsHouse && (*this)[move.to].entity.type != NONE) return false;
+
+        const EntityType entityType = (*this)[move.from].entity.type;
+        // Entity on cell from must exist
+        if (entityType == NONE) return false;
+
+        const int player = (*this)[move.from].entity.ownerId,
+                enemy = player % 2 + 1;
+
+        const Cell enemyTrainerCell = positions[Entity::idOf(enemy, TRAINER)];
+
+        const bool enemyTrainerActive = activeEntities.count(Entity::idOf(enemy, TRAINER));
+
+        // isInFieldBounds against from or to cells are blocked by enemy trainer
+        if (enemyTrainerActive) {
+            if (isBlockedByTrainer(move.from, enemyTrainerCell)) return false;
+            if (isBlockedByTrainer(move.to, enemyTrainerCell)) return false;
+        }
+
+        const int difRow = move.to.row - move.from.row,
+                difCol = move.to.col - move.from.col;
+
+        // Base doMove
+        if ((*this)[move.to].entity.type == NONE) {
+            if (targetIsHouse) {
+                if (abs(difCol) + abs(difRow) == 1) return true;
+            } else {
+                if (abs(difRow) <= 1 && abs(difCol) <= 1) return true;
+            }
+        }
+
+        // For magician
+        const Entity targetEntity = (*this)[move.to].entity;
+        // For strongman
+        const Cell nextCell{move.to.row + 2 * difRow,
+                            move.to.col + 2 * difCol};
+
+        switch (entityType) {
+            case CLOWN:
+            case TRAINER:
+            case NONE:
+                // Clowns and trainers can't do any special doMove; none ... is none, isn't it?
+                break;
+            case ACROBAT:
+                // Double doMove
+                if ((*this)[move.to].entity.type == NONE) {
+                    // Vertical/horizontal
+                    if ((difCol == 0 || difRow == 0) && abs(difCol) + abs(difRow) == 2) return true;
+
+                    // Diagonal
+                    if (!targetIsHouse) {
+                        if (abs(difRow) == 2 && abs(difCol) == 2) return true;
+                    }
+                }
+                break;
+            case STRONGMAN:
+                // Strongmen can push other entities
+                if (nextCell.isInFieldBounds() && (*this)[nextCell].entity.type == NONE
+                    && (!(*this)[nextCell].hasHouse || (difCol == 0 || difRow == 0))
+                    && (!enemyTrainerActive || !isBlockedByTrainer(nextCell, enemyTrainerCell)))
+                    return true;
+                break;
+            case MAGICIAN:
+                // Magicians can use 'teleportation'
+                if ( // 'Teleportation' is not a real teleportation but rather a swap with any other entity
+                        targetEntity.type != NONE
+                        && (    // ... excluding enemy trainer and magician
+                                targetEntity.ownerId == player || targetEntity.type != TRAINER
+                                                                  && targetEntity.type != MAGICIAN)
+                        )
+                    return true;
+                break;
+        }
+
+        // Move doesn't match any pattern, so it is disallowed
+        return false;
     }
 
-    void move(const Move move) {
-        if (move == NONE_MOVE) return;
+    void doMove(const Move move) {
+        lout << logVerb << "doing move " << move << "..." << endl;
+        if (!checkMove(move)) lout << logErr << "illegal move " << move << endl;
+
+        //TODO: special moves
 
         Entity e = (*this)[move.from].entity;
 
@@ -196,6 +297,19 @@ struct Field {
             activeEntities.erase(e.id);
             freeHouses.erase(move.to);
         }
+    }
+
+
+private:
+    /**
+     * Checks if @param cell is blocked by trainer on @param trainerCell.
+     * @return -1 if cell == trainerCell, 1 if cell is blocked, 0 otherwise
+     */
+    static bool isBlockedByTrainer(const Cell cell, const Cell trainerCell) {
+        const int dstRow = abs(cell.row - trainerCell.row),
+                dstCol = abs(cell.col - trainerCell.col);
+
+        return dstRow <= 1 && dstCol <= 1;
     }
 };
 
@@ -225,12 +339,12 @@ istream &operator>>(istream &in, Cell &cell) {
 }
 
 ostream &operator<<(ostream &out, const Cell cell) {
-    out << (char)(cell.row + 'A') << (char)(cell.col + '1');
+    out << (char) (cell.row + 'A') << (char) (cell.col + '1');
     return out;
 }
 
 istream &operator>>(istream &in, Move &move) {
-    lout << logVerb << "reading a move..." << endl;
+    lout << logVerb << "reading a doMove..." << endl;
 
     string str;
     in >> str;
@@ -238,12 +352,12 @@ istream &operator>>(istream &in, Move &move) {
     move.from.row = str[0] - 'A';
     move.from.col = str[1] - '1';
 
-    if (str[2] != '-') lout << logErr << "unexpected symbol when reading move: '" << str << "'" << endl;
+    if (str[2] != '-') lout << logErr << "unexpected symbol when reading doMove: '" << str << "'" << endl;
 
     move.to.row = str[3] - 'A';
     move.to.col = str[4] - '1';
 
-    lout << logVerb << "move '" << move << "' was read" << endl;
+    lout << logVerb << "doMove '" << move << "' was read" << endl;
 
     return in;
 }
@@ -293,8 +407,9 @@ istream &operator>>(istream &in, State &state) {
 
 /******************************************** main ********************************************************************/
 
-void mainLoop(State&);
-Move doMove(const State&);
+void mainLoop(State &);
+
+Move doMove(const State &);
 
 int main() {
     lout << logInfo << "starting" << endl;
@@ -306,7 +421,6 @@ int main() {
         mainLoop(state);
 
 
-
     return 0;
 }
 
@@ -315,10 +429,10 @@ void mainLoop(State &state) {
     if (state.currentPlayer != state.myPlayer) {
         Move move;
         cin >> move;
-        state.field.move(move);
+        state.field.doMove(move);
     } else {
         Move move = doMove(state);
-        state.field.move(move);
+        state.field.doMove(move);
         cout << move << endl;
     }
 
