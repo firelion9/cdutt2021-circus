@@ -29,7 +29,7 @@ void abortDebug() {
 #include <fstream>
 
 struct LogObj {
-    ofstream out = ofstream("log.txt");
+    ofstream out = ofstream(LOG_FILE);
 
     ~LogObj() {
         out.close();
@@ -107,7 +107,7 @@ LogObj lout; // NOLINT(cert-err58-cpp)
 /******************************************** game structures *********************************************************/
 
 struct Cell {
-    int row = 25, col = -1;
+    int row = -1, col = 25;
 
     bool operator==(const Cell &right) const {
         return row == right.row && col == right.col;
@@ -271,7 +271,7 @@ struct Field {
         const int difRow = move.to.row - move.from.row,
                 difCol = move.to.col - move.from.col;
 
-        // Base doMove
+        // Base move
         if ((*this)[move.to].entity.type == Entity::NONE_TYPE) {
             if (targetIsHouse) {
                 if (abs(difCol) + abs(difRow) == 1) return BASE_MOVE;
@@ -290,10 +290,10 @@ struct Field {
             case Entity::CLOWN:
             case Entity::TRAINER:
             case Entity::NONE_TYPE:
-                // Clowns and trainers can't do any special doMove; none ... is none, isn't it?
+                // Clowns and trainers can't do any special move; none ... is none, isn't it?
                 break;
             case Entity::ACROBAT:
-                // Double doMove
+                // Double move
                 if ((*this)[move.to].entity.type == Entity::NONE_TYPE) {
                     // Vertical/horizontal
                     if ((difCol == 0 || difRow == 0) && abs(difCol) + abs(difRow) == 2) return DOUBLE_MOVE;
@@ -337,19 +337,19 @@ struct Field {
                 break;
             case NO_MOVE:
                 // Do nothing
-                lout << logVerb << "move " << move << "is a Z0-Z0 move" << endl;
+                lout << logVerb << "move " << move << " is a Z0-Z0 move" << endl;
                 break;
             case BASE_MOVE:
             case DOUBLE_MOVE:
-                lout << logVerb << "move " << move << "is a base or double move" << endl;
+                lout << logVerb << "move " << move << " is a base or double move" << endl;
                 baseOrDoubleMove(move);
                 break;
             case SWAP:
-                lout << logVerb << "move " << move << "is a swap" << endl;
+                lout << logVerb << "move " << move << " is a swap" << endl;
                 swapMove(move);
                 break;
             case PUSH:
-                lout << logVerb << "move " << move << "is a push" << endl;
+                lout << logVerb << "move " << move << " is a push" << endl;
                 pushMove(move);
                 break;
         }
@@ -434,8 +434,8 @@ istream &operator>>(istream &in, Cell &cell) {
     string str;
     in >> str;
 
-    cell.row = str[0] - 'A';
-    cell.col = str[1] - '1';
+    cell.col = str[0] - 'A';
+    cell.row = str[1] - '1';
 
     lout << logVerb << "cell '" << cell << "' was read" << endl;
 
@@ -443,25 +443,25 @@ istream &operator>>(istream &in, Cell &cell) {
 }
 
 ostream &operator<<(ostream &out, const Cell cell) {
-    out << (char) (cell.row + 'A') << (char) (cell.col + '1');
+    out << (char) (cell.col + 'A') << (char) (cell.row + '1');
     return out;
 }
 
 istream &operator>>(istream &in, Move &move) {
-    lout << logVerb << "reading a doMove..." << endl;
+    lout << logVerb << "reading a move..." << endl;
 
     string str;
     in >> str;
 
-    move.from.row = str[0] - 'A';
-    move.from.col = str[1] - '1';
+    move.from.col = str[0] - 'A';
+    move.from.row = str[1] - '1';
 
-    if (str[2] != '-') lout << logErr << "unexpected symbol when reading doMove: '" << str << "'" << endl;
+    if (str[2] != '-') lout << logErr << "unexpected symbol when reading move: '" << str << "'" << endl;
 
-    move.to.row = str[3] - 'A';
-    move.to.col = str[4] - '1';
+    move.to.col = str[3] - 'A';
+    move.to.row = str[4] - '1';
 
-    lout << logVerb << "doMove '" << move << "' was read" << endl;
+    lout << logVerb << "move '" << move << "' was read" << endl;
 
     return in;
 }
@@ -479,10 +479,10 @@ int rowForPlayer(int col, int player) {
 void initializeEntities(Field &field, int player) {
     field.set(rowForPlayer(0, player), 0, Entity(player, Entity::ACROBAT));
     field.set(rowForPlayer(1, player), 0, Entity(player, Entity::CLOWN));
-    field.set(rowForPlayer(0, player), 1, Entity(player, Entity::CLOWN));
+    field.set(rowForPlayer(0, player), 1, Entity(player, Entity::CLOWN, true));
     field.set(rowForPlayer(1, player), 1, Entity(player, Entity::MAGICIAN));
     field.set(rowForPlayer(2, player), 0, Entity(player, Entity::STRONGMAN));
-    field.set(rowForPlayer(0, player), 2, Entity(player, Entity::STRONGMAN));
+    field.set(rowForPlayer(0, player), 2, Entity(player, Entity::STRONGMAN, true));
     field.set(rowForPlayer(3, player), 0, Entity(player, Entity::TRAINER));
 }
 
@@ -521,7 +521,7 @@ int main() {
     State state;
     cin >> state;
 
-    while (state.doneSteps < MAX_STEPS)
+    while (state.doneSteps < MAX_STEPS && !state.field.freeHouses.empty())
         mainLoop(state);
 
 
@@ -688,6 +688,13 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
             case Entity::NONE_TYPE:
                 break;
         }
+
+        // Score for distances
+        if (my) {
+            score -= 11 - cell.col;
+        } else {
+            score += 11 - cell.col;
+        }
     }
 
     return score;
@@ -700,7 +707,7 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
 pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
     State tmp = state;
     vector<Move> allMoves = allAvailableMoves(state);
-    vector<pair<int, Move>> movesWithScore(allMoves.size());
+    vector<pair<int, Move>> movesWithScore;
 
     for (Move move : allMoves) {
         tmp.doMove(move);
@@ -718,12 +725,12 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
          [](const pair<int, Move> &left, const pair<int, Move> &right) { return left.first < right.first; });
 
 
-    if (state.currentPlayer == state.myPlayer) return movesWithScore.front();
-    else return movesWithScore.back();
+    if (state.currentPlayer == state.myPlayer) return movesWithScore.back();
+    else return movesWithScore.front();
 }
 
 Move doMove(const State &state) {
-    auto moveInfo = chooseBestMoveRecursive(state, 3);
+    auto moveInfo = chooseBestMoveRecursive(state, 1);
     lout << logInfo << "choose move " << moveInfo.second << " with score " << moveInfo.first << endl;
 
     return moveInfo.second;

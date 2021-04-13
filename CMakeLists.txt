@@ -3,5 +3,10 @@ project(cdutt2021_circus)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(cdutt2021_circus main.cpp)
-target_compile_definitions(cdutt2021_circus PUBLIC LOCAL_RUN)
+add_executable(player1 main.cpp)
+target_compile_definitions(player1 PUBLIC LOCAL_RUN)
+target_compile_definitions(player1 PUBLIC LOG_FILE="log1.txt")
+
+add_executable(player2 main.cpp)
+target_compile_definitions(player2 PUBLIC LOCAL_RUN)
+target_compile_definitions(player2 PUBLIC LOG_FILE="log2.txt")
