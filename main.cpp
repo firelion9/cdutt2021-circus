@@ -14,6 +14,12 @@ static constexpr int MAX_STEPS = 300;
 static constexpr int FIELD_WIDTH = 12;
 static constexpr int FIELD_HEIGHT = 9;
 
+#ifdef RELEASE
+#define abortDebug()
+#else
+#define abortDebug() abort()
+#endif
+
 /******************************************** logging *****************************************************************/
 #ifdef LOCAL_RUN
 
@@ -183,32 +189,43 @@ struct Field {
 
     void set(const Cell cell, const Entity entity) {
         (*this)[cell].entity = entity;
-
-        if (positions.count(entity.id) != 0) (*this)[positions[entity.id]].entity = NONE_ENTITY;
         positions[entity.id] = cell;
     }
 
-    bool checkMove(const Move move) {
+    void clear(const Cell cell) {
+        (*this)[cell].entity = NONE_ENTITY;
+    }
+
+    enum MoveType {
+        DISALLOWED,
+        NO_MOVE,
+        BASE,
+        DOUBLE,
+        SWAP,
+        PUSH,
+    };
+
+    MoveType checkMove(const Move move) {
         // NONE_MOVE is always allowed
-        if (move == NONE_MOVE) return true;
+        if (move == NONE_MOVE) return NO_MOVE;
 
         // Standing on a cell is always disallowed
-        if (move.from == move.to) return false;
+        if (move.from == move.to) return DISALLOWED;
 
         // From and to must be valid cells
-        if (!move.from.isInFieldBounds() || !move.to.isInFieldBounds()) return false;
+        if (!move.from.isInFieldBounds() || !move.to.isInFieldBounds()) return DISALLOWED;
 
         // Moving from a house is disallowed
-        if ((*this)[move.from].hasHouse) return false;
+        if ((*this)[move.from].hasHouse) return DISALLOWED;
 
         const bool targetIsHouse = (*this)[move.to].hasHouse;
 
         // Moving to occupied house is disallowed
-        if (targetIsHouse && (*this)[move.to].entity.type != NONE) return false;
+        if (targetIsHouse && (*this)[move.to].entity.type != NONE) return DISALLOWED;
 
         const EntityType entityType = (*this)[move.from].entity.type;
         // Entity on cell from must exist
-        if (entityType == NONE) return false;
+        if (entityType == NONE) return DISALLOWED;
 
         const int player = (*this)[move.from].entity.ownerId,
                 enemy = player % 2 + 1;
@@ -219,8 +236,8 @@ struct Field {
 
         // isInFieldBounds against from or to cells are blocked by enemy trainer
         if (enemyTrainerActive) {
-            if (isBlockedByTrainer(move.from, enemyTrainerCell)) return false;
-            if (isBlockedByTrainer(move.to, enemyTrainerCell)) return false;
+            if (isBlockedByTrainer(move.from, enemyTrainerCell)) return DISALLOWED;
+            if (isBlockedByTrainer(move.to, enemyTrainerCell)) return DISALLOWED;
         }
 
         const int difRow = move.to.row - move.from.row,
@@ -229,9 +246,9 @@ struct Field {
         // Base doMove
         if ((*this)[move.to].entity.type == NONE) {
             if (targetIsHouse) {
-                if (abs(difCol) + abs(difRow) == 1) return true;
+                if (abs(difCol) + abs(difRow) == 1) return BASE;
             } else {
-                if (abs(difRow) <= 1 && abs(difCol) <= 1) return true;
+                if (abs(difRow) <= 1 && abs(difCol) <= 1) return BASE;
             }
         }
 
@@ -251,11 +268,11 @@ struct Field {
                 // Double doMove
                 if ((*this)[move.to].entity.type == NONE) {
                     // Vertical/horizontal
-                    if ((difCol == 0 || difRow == 0) && abs(difCol) + abs(difRow) == 2) return true;
+                    if ((difCol == 0 || difRow == 0) && abs(difCol) + abs(difRow) == 2) return DOUBLE;
 
                     // Diagonal
                     if (!targetIsHouse) {
-                        if (abs(difRow) == 2 && abs(difCol) == 2) return true;
+                        if (abs(difRow) == 2 && abs(difCol) == 2) return DOUBLE;
                     }
                 }
                 break;
@@ -264,7 +281,7 @@ struct Field {
                 if (nextCell.isInFieldBounds() && (*this)[nextCell].entity.type == NONE
                     && (!(*this)[nextCell].hasHouse || (difCol == 0 || difRow == 0))
                     && (!enemyTrainerActive || !isBlockedByTrainer(nextCell, enemyTrainerCell)))
-                    return true;
+                    return PUSH;
                 break;
             case MAGICIAN:
                 // Magicians can use 'teleportation'
@@ -274,33 +291,81 @@ struct Field {
                                 targetEntity.ownerId == player || targetEntity.type != TRAINER
                                                                   && targetEntity.type != MAGICIAN)
                         )
-                    return true;
+                    return SWAP;
                 break;
         }
 
         // Move doesn't match any pattern, so it is disallowed
-        return false;
+        return DISALLOWED;
     }
 
     void doMove(const Move move) {
         lout << logVerb << "doing move " << move << "..." << endl;
-        if (!checkMove(move)) lout << logErr << "illegal move " << move << endl;
 
-        //TODO: special moves
-
-        Entity e = (*this)[move.from].entity;
-
-        set(move.to, e);
-        CellInfo info = (*this)[move.to];
-
-        if (info.hasHouse) {
-            activeEntities.erase(e.id);
-            freeHouses.erase(move.to);
+        switch (checkMove(move)) {
+            case DISALLOWED:
+                lout << logErr << "illegal move " << move << endl;
+                abortDebug();
+                break;
+            case NO_MOVE:
+                // Do nothing
+                break;
+            case BASE:
+            case DOUBLE:
+                baseOrDoubleMove(move);
+                break;
+            case SWAP:
+                swapMove(move);
+                break;
+            case PUSH:
+                pushMove(move);
+                break;
         }
     }
 
 
 private:
+    void baseOrDoubleMove(const Move move) {
+        Entity movingEntity = (*this)[move.from].entity;
+
+        clear(move.from);
+        set(move.to, movingEntity);
+
+        CellInfo info = (*this)[move.to];
+
+        if (info.hasHouse) {
+            activeEntities.erase(movingEntity.id);
+            freeHouses.erase(move.to);
+        }
+    }
+
+    void swapMove(const Move move) {
+        Entity magician = (*this)[move.from].entity;
+        Entity assistant = (*this)[move.to].entity;
+
+        set(move.to, magician);
+        set(move.from, assistant);
+    }
+
+    void pushMove(const Move move) {
+        Entity strongman = (*this)[move.from].entity;
+        Entity pushedEntity = (*this)[move.to].entity;
+
+        // nextCell = to + (to - from)
+        Cell nextCell{2 * move.to.row - move.from.row, 2 * move.to.col - move.from.col};
+
+        clear(move.from);
+        set(move.to, strongman);
+        set(nextCell, pushedEntity);
+
+        CellInfo info = (*this)[nextCell];
+
+        if (info.hasHouse) {
+            activeEntities.erase(pushedEntity.id);
+            freeHouses.erase(nextCell);
+        }
+    }
+
     /**
      * Checks if @param cell is blocked by trainer on @param trainerCell.
      * @return -1 if cell == trainerCell, 1 if cell is blocked, 0 otherwise
