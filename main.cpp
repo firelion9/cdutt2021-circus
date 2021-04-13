@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <algorithm>
 
 using namespace std;
 using namespace chrono;
@@ -14,11 +15,13 @@ static constexpr int MAX_STEPS = 300;
 static constexpr int FIELD_WIDTH = 12;
 static constexpr int FIELD_HEIGHT = 9;
 
+void abortDebug() {
 #ifdef RELEASE
-#define abortDebug()
+    abortDebug();
 #else
-#define abortDebug() abort()
+    abort();
 #endif
+}
 
 /******************************************** logging *****************************************************************/
 #ifdef LOCAL_RUN
@@ -88,11 +91,6 @@ inline LogObj &logErr(LogObj &out) {
     return out;
 }
 
-inline LogObj &logWarn(LogObj &out) {
-    out << logHeader << "warn" << "\t";
-    return out;
-}
-
 inline LogObj &logInfo(LogObj &out) {
     out << logHeader << "info" << "\t";
     return out;
@@ -103,7 +101,7 @@ inline LogObj &logVerb(LogObj &out) {
     return out;
 }
 
-LogObj lout;
+LogObj lout; // NOLINT(cert-err58-cpp)
 
 
 /******************************************** game structures *********************************************************/
@@ -138,16 +136,16 @@ struct Move {
 const Cell NONE_CELL{};
 const Move NONE_MOVE{NONE_CELL, NONE_CELL};
 
-enum EntityType {
-    CLOWN = 0,      // 0b000
-    STRONGMAN = 2,  // 0b010
-    ACROBAT = 4,    // 0b100
-    MAGICIAN = 5,   // 0b101
-    TRAINER = 6,    // 0b110
-    NONE = -1,
-};
-
 struct Entity {
+    enum EntityType {
+        CLOWN = 0,      // 0b000
+        STRONGMAN = 2,  // 0b010
+        ACROBAT = 4,    // 0b100
+        MAGICIAN = 5,   // 0b101
+        TRAINER = 6,    // 0b110
+        NONE_TYPE = -1,
+    };
+
     /* const */ int id;
     /* const */ int ownerId;
     /* const */ EntityType type;
@@ -156,14 +154,40 @@ struct Entity {
         return (ownerId << 3) + (int) type + (int) isSecond;
     }
 
+    static EntityType typeById(const int id) {
+        switch (id & 0b111) {
+            case 0:
+            case 1:
+                return CLOWN;
+
+            case 2:
+            case 3:
+                return STRONGMAN;
+
+            case 5:
+                return MAGICIAN;
+
+            case 6:
+                return TRAINER;
+
+            default:
+                return NONE_TYPE;
+        }
+    }
+
     Entity(const int ownerId, const EntityType type, bool isSecond = false) :
             id(idOf(ownerId, type, isSecond)),
             ownerId(ownerId),
             type(type) {}
+
+    explicit Entity(const int id) :
+            id(id),
+            ownerId(id >> 3),
+            type(typeById(id)) {}
 };
 
 
-const Entity NONE_ENTITY(-1, NONE);
+const Entity NONE_ENTITY(-1, Entity::NONE_TYPE); // NOLINT(cert-err58-cpp)
 
 struct CellInfo {
     /*const*/ bool hasHouse = false;
@@ -183,6 +207,10 @@ struct Field {
         return field[cell.col][cell.row];
     }
 
+    const CellInfo &operator[](const Cell cell) const {
+        return field[cell.col][cell.row];
+    }
+
     void set(const int row, const int col, const Entity entity) {
         set(Cell{row, col}, entity);
     }
@@ -197,58 +225,58 @@ struct Field {
     }
 
     enum MoveType {
-        DISALLOWED,
+        ILLEGAL_MOVE,
         NO_MOVE,
-        BASE,
-        DOUBLE,
+        BASE_MOVE,
+        DOUBLE_MOVE,
         SWAP,
         PUSH,
     };
 
-    MoveType checkMove(const Move move) {
-        // NONE_MOVE is always allowed
+    MoveType checkMove(const Move move) const {
+        // NONE_MOVE is always legal
         if (move == NONE_MOVE) return NO_MOVE;
 
-        // Standing on a cell is always disallowed
-        if (move.from == move.to) return DISALLOWED;
+        // Standing on a cell is always illegal
+        if (move.from == move.to) return ILLEGAL_MOVE;
 
         // From and to must be valid cells
-        if (!move.from.isInFieldBounds() || !move.to.isInFieldBounds()) return DISALLOWED;
+        if (!move.from.isInFieldBounds() || !move.to.isInFieldBounds()) return ILLEGAL_MOVE;
 
-        // Moving from a house is disallowed
-        if ((*this)[move.from].hasHouse) return DISALLOWED;
+        // Moving from a house is illegal
+        if ((*this)[move.from].hasHouse) return ILLEGAL_MOVE;
 
         const bool targetIsHouse = (*this)[move.to].hasHouse;
 
-        // Moving to occupied house is disallowed
-        if (targetIsHouse && (*this)[move.to].entity.type != NONE) return DISALLOWED;
+        // Moving to occupied house is illegal
+        if (targetIsHouse && (*this)[move.to].entity.type != Entity::NONE_TYPE) return ILLEGAL_MOVE;
 
-        const EntityType entityType = (*this)[move.from].entity.type;
+        const Entity::EntityType entityType = (*this)[move.from].entity.type;
         // Entity on cell from must exist
-        if (entityType == NONE) return DISALLOWED;
+        if (entityType == Entity::NONE_TYPE) return ILLEGAL_MOVE;
 
         const int player = (*this)[move.from].entity.ownerId,
-                enemy = player % 2 + 1;
+                enemy = (player + 1) % 2;
 
-        const Cell enemyTrainerCell = positions[Entity::idOf(enemy, TRAINER)];
+        const Cell enemyTrainerCell = positions.at(Entity::idOf(enemy, Entity::TRAINER));
 
-        const bool enemyTrainerActive = activeEntities.count(Entity::idOf(enemy, TRAINER));
+        const bool enemyTrainerActive = activeEntities.count(Entity::idOf(enemy, Entity::TRAINER));
 
-        // isInFieldBounds against from or to cells are blocked by enemy trainer
+        // check against from or to cells are blocked by enemy trainer
         if (enemyTrainerActive) {
-            if (isBlockedByTrainer(move.from, enemyTrainerCell)) return DISALLOWED;
-            if (isBlockedByTrainer(move.to, enemyTrainerCell)) return DISALLOWED;
+            if (isBlockedByTrainer(move.from, enemyTrainerCell)) return ILLEGAL_MOVE;
+            if (isBlockedByTrainer(move.to, enemyTrainerCell)) return ILLEGAL_MOVE;
         }
 
         const int difRow = move.to.row - move.from.row,
                 difCol = move.to.col - move.from.col;
 
         // Base doMove
-        if ((*this)[move.to].entity.type == NONE) {
+        if ((*this)[move.to].entity.type == Entity::NONE_TYPE) {
             if (targetIsHouse) {
-                if (abs(difCol) + abs(difRow) == 1) return BASE;
+                if (abs(difCol) + abs(difRow) == 1) return BASE_MOVE;
             } else {
-                if (abs(difRow) <= 1 && abs(difCol) <= 1) return BASE;
+                if (abs(difRow) <= 1 && abs(difCol) <= 1) return BASE_MOVE;
             }
         }
 
@@ -259,70 +287,84 @@ struct Field {
                             move.to.col + 2 * difCol};
 
         switch (entityType) {
-            case CLOWN:
-            case TRAINER:
-            case NONE:
+            case Entity::CLOWN:
+            case Entity::TRAINER:
+            case Entity::NONE_TYPE:
                 // Clowns and trainers can't do any special doMove; none ... is none, isn't it?
                 break;
-            case ACROBAT:
+            case Entity::ACROBAT:
                 // Double doMove
-                if ((*this)[move.to].entity.type == NONE) {
+                if ((*this)[move.to].entity.type == Entity::NONE_TYPE) {
                     // Vertical/horizontal
-                    if ((difCol == 0 || difRow == 0) && abs(difCol) + abs(difRow) == 2) return DOUBLE;
+                    if ((difCol == 0 || difRow == 0) && abs(difCol) + abs(difRow) == 2) return DOUBLE_MOVE;
 
                     // Diagonal
                     if (!targetIsHouse) {
-                        if (abs(difRow) == 2 && abs(difCol) == 2) return DOUBLE;
+                        if (abs(difRow) == 2 && abs(difCol) == 2) return DOUBLE_MOVE;
                     }
                 }
                 break;
-            case STRONGMAN:
+            case Entity::STRONGMAN:
                 // Strongmen can push other entities
-                if (nextCell.isInFieldBounds() && (*this)[nextCell].entity.type == NONE
+                if (nextCell.isInFieldBounds() && (*this)[nextCell].entity.type == Entity::NONE_TYPE
                     && (!(*this)[nextCell].hasHouse || (difCol == 0 || difRow == 0))
                     && (!enemyTrainerActive || !isBlockedByTrainer(nextCell, enemyTrainerCell)))
                     return PUSH;
                 break;
-            case MAGICIAN:
+            case Entity::MAGICIAN:
                 // Magicians can use 'teleportation'
                 if ( // 'Teleportation' is not a real teleportation but rather a swap with any other entity
-                        targetEntity.type != NONE
+                        targetEntity.type != Entity::NONE_TYPE
                         && (    // ... excluding enemy trainer and magician
-                                targetEntity.ownerId == player || targetEntity.type != TRAINER
-                                                                  && targetEntity.type != MAGICIAN)
+                                targetEntity.ownerId == player || targetEntity.type != Entity::TRAINER
+                                                                  && targetEntity.type != Entity::MAGICIAN)
                         )
                     return SWAP;
                 break;
         }
 
-        // Move doesn't match any pattern, so it is disallowed
-        return DISALLOWED;
+        // Move doesn't match any pattern, so it is illegal
+        return ILLEGAL_MOVE;
     }
 
     void doMove(const Move move) {
         lout << logVerb << "doing move " << move << "..." << endl;
 
         switch (checkMove(move)) {
-            case DISALLOWED:
+            case ILLEGAL_MOVE:
                 lout << logErr << "illegal move " << move << endl;
                 abortDebug();
                 break;
             case NO_MOVE:
                 // Do nothing
+                lout << logVerb << "move " << move << "is a Z0-Z0 move" << endl;
                 break;
-            case BASE:
-            case DOUBLE:
+            case BASE_MOVE:
+            case DOUBLE_MOVE:
+                lout << logVerb << "move " << move << "is a base or double move" << endl;
                 baseOrDoubleMove(move);
                 break;
             case SWAP:
+                lout << logVerb << "move " << move << "is a swap" << endl;
                 swapMove(move);
                 break;
             case PUSH:
+                lout << logVerb << "move " << move << "is a push" << endl;
                 pushMove(move);
                 break;
         }
     }
 
+    /**
+     * Checks if @param cell is blocked by trainer on @param trainerCell.
+     * @return -1 if cell == trainerCell, 1 if cell is blocked, 0 otherwise
+     */
+    static bool isBlockedByTrainer(const Cell cell, const Cell trainerCell) {
+        const int dstRow = abs(cell.row - trainerCell.row),
+                dstCol = abs(cell.col - trainerCell.col);
+
+        return dstRow <= 1 && dstCol <= 1;
+    }
 
 private:
     void baseOrDoubleMove(const Move move) {
@@ -366,16 +408,6 @@ private:
         }
     }
 
-    /**
-     * Checks if @param cell is blocked by trainer on @param trainerCell.
-     * @return -1 if cell == trainerCell, 1 if cell is blocked, 0 otherwise
-     */
-    static bool isBlockedByTrainer(const Cell cell, const Cell trainerCell) {
-        const int dstRow = abs(cell.row - trainerCell.row),
-                dstCol = abs(cell.col - trainerCell.col);
-
-        return dstRow <= 1 && dstCol <= 1;
-    }
 };
 
 struct State {
@@ -385,6 +417,13 @@ struct State {
 
     int doneSteps = 0;
     int currentPlayer = 0;
+
+    void doMove(const Move move) {
+        field.doMove(move);
+
+        currentPlayer = (currentPlayer + 1) % 2;
+        doneSteps++;
+    }
 };
 
 /******************************************** game I/O ****************************************************************/
@@ -438,13 +477,13 @@ int rowForPlayer(int col, int player) {
 }
 
 void initializeEntities(Field &field, int player) {
-    field.set(rowForPlayer(0, player), 0, Entity(player, ACROBAT));
-    field.set(rowForPlayer(1, player), 0, Entity(player, CLOWN));
-    field.set(rowForPlayer(0, player), 1, Entity(player, CLOWN));
-    field.set(rowForPlayer(1, player), 1, Entity(player, MAGICIAN));
-    field.set(rowForPlayer(2, player), 0, Entity(player, STRONGMAN));
-    field.set(rowForPlayer(0, player), 2, Entity(player, STRONGMAN));
-    field.set(rowForPlayer(3, player), 0, Entity(player, TRAINER));
+    field.set(rowForPlayer(0, player), 0, Entity(player, Entity::ACROBAT));
+    field.set(rowForPlayer(1, player), 0, Entity(player, Entity::CLOWN));
+    field.set(rowForPlayer(0, player), 1, Entity(player, Entity::CLOWN));
+    field.set(rowForPlayer(1, player), 1, Entity(player, Entity::MAGICIAN));
+    field.set(rowForPlayer(2, player), 0, Entity(player, Entity::STRONGMAN));
+    field.set(rowForPlayer(0, player), 2, Entity(player, Entity::STRONGMAN));
+    field.set(rowForPlayer(3, player), 0, Entity(player, Entity::TRAINER));
 }
 
 istream &operator>>(istream &in, State &state) {
@@ -494,18 +533,198 @@ void mainLoop(State &state) {
     if (state.currentPlayer != state.myPlayer) {
         Move move;
         cin >> move;
-        state.field.doMove(move);
+        state.doMove(move);
     } else {
         Move move = doMove(state);
-        state.field.doMove(move);
+        state.doMove(move);
         cout << move << endl;
     }
+}
 
-    state.doneSteps++;
-    state.currentPlayer = (state.currentPlayer + 1) % 2;
+/******************************************** doMove and helpers ******************************************************/
+
+inline void addMoveIfLegal(const State &state, vector<Move> &out, const Move &move, const bool addSwaps = false) {
+    switch (state.field.checkMove(move)) {
+        case Field::BASE_MOVE:
+        case Field::PUSH:
+        case Field::DOUBLE_MOVE:
+        case Field::NO_MOVE:
+            out.push_back(move);
+            break;
+
+        case Field::SWAP:
+            if (addSwaps) out.push_back(move);
+            break;
+
+        case Field::ILLEGAL_MOVE:
+            // Don't add
+            break;
+    }
+}
+
+vector<Move> allAvailableMoves(const State &state) {
+    vector<Move> res;
+
+    // Base move, push (strongman)
+    for (const int entityId : state.field.activeEntities) {
+        const Cell position = state.field.positions.at(entityId);
+        const Entity entity(entityId);
+        if (entity.ownerId != state.currentPlayer) continue;
+
+        for (int dRow = -1; dRow <= 1; ++dRow) {
+            for (int dCol = -1; dCol <= 1; ++dCol) {
+                const Move move{position, {position.row + dRow, position.col + dCol}};
+                addMoveIfLegal(state, res, move);
+            }
+        }
+    }
+
+    Cell position;
+
+    // Double move (acrobat)
+    position = state.field.positions.at(Entity::idOf(state.currentPlayer, Entity::ACROBAT));
+    for (int dRow = -1; dRow <= 1; ++dRow) {
+        for (int dCol = -1; dCol <= 1; ++dCol) {
+            const Move move{position, {position.row + dRow, position.col + dCol}};
+            addMoveIfLegal(state, res, move);
+        }
+    }
+
+    // Swap (magician)
+    position = state.field.positions.at(Entity::idOf(state.currentPlayer, Entity::MAGICIAN));
+    for (const int assistantId : state.field.activeEntities) {
+        const Cell assistantPosition = state.field.positions.at(assistantId);
+        addMoveIfLegal(state, res, {position, assistantPosition});
+    }
+
+    // No move
+    res.push_back(NONE_MOVE);
+
+    return res;
+}
+
+int stateScore(const State &state) {
+    int score = 0;
+
+    const int player = state.myPlayer,
+            enemy = (player + 1) % 2;
+
+    const Cell friendTrainerCell = state.field.positions.at(Entity::idOf(player, Entity::TRAINER)),
+            enemyTrainerCell = state.field.positions.at(Entity::idOf(enemy, Entity::TRAINER));
+
+    const bool friendTrainerActive = state.field.activeEntities.count(Entity::idOf(player, Entity::TRAINER)) == 1,
+            enemyTrainerActive = state.field.activeEntities.count(Entity::idOf(enemy, Entity::TRAINER)) == 1;
+
+    // Macroses for checking if cell is blocked by a trainer. You can that they are local functions
+#define isBlockedByFriendTrainer(cell) \
+friendTrainerActive && Field::isBlockedByTrainer(friendTrainerCell, cell) && !state.field[cell].hasHouse
+#define isBlockedByEnemyTrainer(cell) \
+enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !state.field[cell].hasHouse
+
+    for (int entityId = 0; entityId < 15; ++entityId) {
+        // Entity with id 7 doesn't exist
+        if (entityId == 7) continue;
+
+        const Entity entity(entityId);
+        const bool my = entity.ownerId == player;
+        const Cell cell = state.field.positions.at(entityId);
+
+        // Score for houses
+        if (state.field[cell].hasHouse) {
+            if (my) score += 50;
+            else score -= 50;
+
+            continue;
+        }
+
+        // Score for entities and trainer blocks
+        switch (entity.type) {
+            case Entity::CLOWN:
+                if (my) {
+                    score -= 100;
+                    if (isBlockedByEnemyTrainer(cell)) score -= 100;
+                } else {
+                    score += 1000;
+                    if (isBlockedByFriendTrainer(cell)) score += 200;
+                }
+                break;
+
+            case Entity::STRONGMAN:
+                if (my) {
+                    score -= 50;
+                    if (isBlockedByEnemyTrainer(cell)) score -= 150;
+                } else {
+                    score += 100;
+                    if (isBlockedByFriendTrainer(cell)) score += 250;
+                }
+                break;
+
+            case Entity::ACROBAT:
+                if (my) {
+                    score -= 20;
+                    if (isBlockedByEnemyTrainer(cell)) score -= 300;
+                } else {
+                    score += 50;
+                    if (isBlockedByFriendTrainer(cell)) score += 200;
+                }
+                break;
+
+            case Entity::MAGICIAN:
+                if (my) {
+                    score -= 20;
+                    if (isBlockedByEnemyTrainer(cell)) score -= 500;
+                } else {
+                    score -= 10;
+                    if (isBlockedByFriendTrainer(cell)) score += 400;
+                }
+                break;
+
+            case Entity::TRAINER:
+                // Trainers can't block each other
+                if (my) score -= 30;
+                else score -= 10;
+                break;
+
+            case Entity::NONE_TYPE:
+                break;
+        }
+    }
+
+    return score;
+
+    // Undefine macroses at function's end
+#undef isBlockedByEnemyTrainer
+#undef isBlockedByFriendTrainer
+}
+
+pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
+    State tmp = state;
+    vector<Move> allMoves = allAvailableMoves(state);
+    vector<pair<int, Move>> movesWithScore(allMoves.size());
+
+    for (Move move : allMoves) {
+        tmp.doMove(move);
+
+        int score;
+        if (depth > 0) score = chooseBestMoveRecursive(tmp, depth - 1).first;
+        else score = stateScore(tmp);
+
+        movesWithScore.emplace_back(score, move);
+
+        tmp = state;
+    }
+
+    sort(movesWithScore.begin(), movesWithScore.end(),
+         [](const pair<int, Move> &left, const pair<int, Move> &right) { return left.first < right.first; });
+
+
+    if (state.currentPlayer == state.myPlayer) return movesWithScore.front();
+    else return movesWithScore.back();
 }
 
 Move doMove(const State &state) {
-    //TODO
-    return NONE_MOVE;
+    auto moveInfo = chooseBestMoveRecursive(state, 3);
+    lout << logInfo << "choose move " << moveInfo.second << " with score " << moveInfo.first << endl;
+
+    return moveInfo.second;
 }
