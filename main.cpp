@@ -17,7 +17,7 @@ static constexpr int FIELD_HEIGHT = 9;
 
 void abortDebug() {
 #ifdef RELEASE
-    abortDebug();
+    // nope
 #else
     abort();
 #endif
