@@ -35,13 +35,8 @@ inline LogObj &operator<<(LogObj &out, const T &val) {
     return out;
 }
 
-#elif RELEASE
-
-struct LogObj {
-};
-
-template<typename T>
-inline LogObj &operator<<(LogObj &out, const T &val) {
+inline LogObj &endl(LogObj &out) {
+    out.out << endl;
     return out;
 }
 
@@ -52,7 +47,10 @@ struct LogObj {
 
 template<typename T>
 inline LogObj &operator<<(LogObj &out, const T &val) {
-    cerr << val;
+    return out;
+}
+
+inline LogObj &endl(LogObj &out) {
     return out;
 }
 
@@ -66,11 +64,6 @@ const auto startPoint = chrono::steady_clock::now();
 
 inline LogObj &now(LogObj &out) {
     out << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - startPoint).count() << "ms";
-    return out;
-}
-
-inline LogObj &endl(LogObj &out) {
-    out.out << endl;
     return out;
 }
 
