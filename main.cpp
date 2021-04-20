@@ -16,6 +16,50 @@ static constexpr int MAX_STEPS = 300;
 static constexpr int FIELD_WIDTH = 12;
 static constexpr int FIELD_HEIGHT = 9;
 
+/******************************************** solution constants ******************************************************/
+
+static constexpr int DO_MOVE_RECURSION_DEPTH = 1;
+
+static constexpr int SCORE_FOR_CAPTURED_HOUSE = 450;
+static constexpr int SCORE_FOR_LOST_HOUSE = -150;
+
+
+static constexpr int SCORE_FOR_UNINHABITED_FRIEND_CLOWN = -100;
+static constexpr int SCORE_FOR_BLOCKED_FRIEND_CLOWN = -100;
+
+static constexpr int SCORE_FOR_UNINHABITED_ENEMY_CLOWN = 1000;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_CLOWN = 200;
+
+
+static constexpr int SCORE_FOR_UNINHABITED_FRIEND_STRONGMAN = -50;
+static constexpr int SCORE_FOR_BLOCKED_FRIEND_STRONGMAN = -150;
+
+static constexpr int SCORE_FOR_UNINHABITED_ENEMY_STRONGMAN = 100;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_STRONGMAN = 250;
+
+
+static constexpr int SCORE_FOR_UNINHABITED_FRIEND_ACROBAT = -20;
+static constexpr int SCORE_FOR_BLOCKED_FRIEND_ACROBAT = -300;
+
+static constexpr int SCORE_FOR_UNINHABITED_ENEMY_ACROBAT = 50;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_ACROBAT = 200;
+
+
+static constexpr int SCORE_FOR_UNINHABITED_FRIEND_MAGICIAN = -20;
+static constexpr int SCORE_FOR_BLOCKED_FRIEND_MAGICIAN = -500;
+
+static constexpr int SCORE_FOR_UNINHABITED_ENEMY_MAGICIAN = -10;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_MAGICIAN = 400;
+
+
+static constexpr int SCORE_FOR_UNINHABITED_FRIEND_TRAINER = -30;
+
+static constexpr int SCORE_FOR_UNINHABITED_ENEMY_TRAINER = -10;
+
+
+static constexpr int SCORE_DISTANCE_TO_END_MULTIPLIER = 1;
+static constexpr int SCORE_DISTANCE_TO_HOUSE_MULTIPLIER = 2;
+
 /******************************************** logging *****************************************************************/
 #ifdef LOCAL_RUN
 
@@ -89,6 +133,26 @@ inline LogObj &logVerb(LogObj &out) {
 
 LogObj lout; // NOLINT(cert-err58-cpp)
 
+
+/******************************************** timer *******************************************************************/
+
+struct Timer {
+private:
+    string tag;
+    chrono::time_point<chrono::steady_clock> start = chrono::steady_clock::now();
+
+public:
+    Timer(const string tag) {
+        this->tag = tag;
+    }
+
+    ~Timer() {
+        lout << logInfo << "time of execution for tag '" << tag << "' " << "is "
+             << (chrono::steady_clock::now() - start).count()
+             << "ns = "
+             << (chrono::steady_clock::now() - start).count() / 1000000.0 << "ms" << endl;
+    }
+};
 
 /******************************************** game structures *********************************************************/
 
@@ -590,6 +654,7 @@ vector<Move> allAvailableMoves(const State &state) {
 }
 
 int stateScore(const State &state) {
+    Timer __timer("stateScore");
     int score = 0;
 
     const int player = state.myPlayer,
@@ -617,8 +682,8 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
 
         // Score for houses
         if (state.field[cell].hasHouse) {
-            if (my) score += 450;
-            else score -= 150;
+            if (my) score += SCORE_FOR_CAPTURED_HOUSE;
+            else score += SCORE_FOR_LOST_HOUSE;
 
             continue;
         }
@@ -627,48 +692,48 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
         switch (entity.type) {
             case Entity::CLOWN:
                 if (my) {
-                    score -= 100;
-                    if (isBlockedByEnemyTrainer(cell)) score -= 100;
+                    score += SCORE_FOR_UNINHABITED_FRIEND_CLOWN;
+                    if (isBlockedByEnemyTrainer(cell)) score += SCORE_FOR_BLOCKED_FRIEND_CLOWN;
                 } else {
-                    score += 1000;
-                    if (isBlockedByFriendTrainer(cell)) score += 200;
+                    score += SCORE_FOR_UNINHABITED_ENEMY_CLOWN;
+                    if (isBlockedByFriendTrainer(cell)) score += SCORE_FOR_BLOCKED_ENEMY_CLOWN;
                 }
                 break;
 
             case Entity::STRONGMAN:
                 if (my) {
-                    score -= 50;
-                    if (isBlockedByEnemyTrainer(cell)) score -= 150;
+                    score += SCORE_FOR_UNINHABITED_FRIEND_STRONGMAN;
+                    if (isBlockedByEnemyTrainer(cell)) score += SCORE_FOR_BLOCKED_FRIEND_STRONGMAN;
                 } else {
-                    score += 100;
-                    if (isBlockedByFriendTrainer(cell)) score += 250;
+                    score += SCORE_FOR_UNINHABITED_ENEMY_STRONGMAN;
+                    if (isBlockedByFriendTrainer(cell)) score += SCORE_FOR_BLOCKED_ENEMY_STRONGMAN;
                 }
                 break;
 
             case Entity::ACROBAT:
                 if (my) {
-                    score -= 20;
-                    if (isBlockedByEnemyTrainer(cell)) score -= 300;
+                    score += SCORE_FOR_UNINHABITED_FRIEND_ACROBAT;
+                    if (isBlockedByEnemyTrainer(cell)) score += SCORE_FOR_BLOCKED_FRIEND_ACROBAT;
                 } else {
-                    score += 50;
-                    if (isBlockedByFriendTrainer(cell)) score += 200;
+                    score += SCORE_FOR_UNINHABITED_ENEMY_ACROBAT;
+                    if (isBlockedByFriendTrainer(cell)) score += SCORE_FOR_BLOCKED_ENEMY_ACROBAT;
                 }
                 break;
 
             case Entity::MAGICIAN:
                 if (my) {
-                    score -= 20;
-                    if (isBlockedByEnemyTrainer(cell)) score -= 500;
+                    score += SCORE_FOR_UNINHABITED_FRIEND_MAGICIAN;
+                    if (isBlockedByEnemyTrainer(cell)) score += SCORE_FOR_BLOCKED_FRIEND_MAGICIAN;
                 } else {
-                    score -= 10;
-                    if (isBlockedByFriendTrainer(cell)) score += 400;
+                    score += SCORE_FOR_UNINHABITED_ENEMY_MAGICIAN;
+                    if (isBlockedByFriendTrainer(cell)) score += SCORE_FOR_BLOCKED_ENEMY_MAGICIAN;
                 }
                 break;
 
             case Entity::TRAINER:
                 // Trainers can't block each other
-                if (my) score -= 30;
-                else score -= 10;
+                if (my) score -= SCORE_FOR_UNINHABITED_FRIEND_TRAINER;
+                else score -= SCORE_FOR_UNINHABITED_ENEMY_TRAINER;
                 break;
 
             case Entity::NONE_TYPE:
@@ -677,9 +742,9 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
 
         // Score for distances
         if (my) {
-            score -= 11 - cell.col;
+            score -= SCORE_DISTANCE_TO_END_MULTIPLIER * (11 - cell.col);
         } else {
-            score += 11 - cell.col;
+            score += SCORE_DISTANCE_TO_END_MULTIPLIER * (11 - cell.col);
         }
 
         int dst = 1000;
@@ -689,9 +754,9 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
         if (dst == 1000) dst = 0;
 
         if (my) {
-            score -= 2 * dst;
+            score -= SCORE_DISTANCE_TO_HOUSE_MULTIPLIER * dst;
         } else {
-            score += 2 * dst;
+            score += SCORE_DISTANCE_TO_HOUSE_MULTIPLIER * dst;
         }
     }
 
@@ -728,7 +793,8 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
 }
 
 Move doMove(const State &state) {
-    auto moveInfo = chooseBestMoveRecursive(state, 1);
+    Timer __timer("doMove");
+    auto moveInfo = chooseBestMoveRecursive(state, DO_MOVE_RECURSION_DEPTH);
     lout << logInfo << "choose move " << moveInfo.second << " with score " << moveInfo.first << endl;
 
     return moveInfo.second;
