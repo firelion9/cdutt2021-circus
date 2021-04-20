@@ -601,7 +601,7 @@ int stateScore(const State &state) {
     const bool friendTrainerActive = state.field.activeEntities.count(Entity::idOf(player, Entity::TRAINER)) == 1,
             enemyTrainerActive = state.field.activeEntities.count(Entity::idOf(enemy, Entity::TRAINER)) == 1;
 
-    // Macroses for checking if cell is blocked by a trainer. You can that they are local functions
+    // Macroses for checking if cell is blocked by a trainer. You can think that they are local functions
 #define isBlockedByFriendTrainer(cell) \
 friendTrainerActive && Field::isBlockedByTrainer(friendTrainerCell, cell) && !state.field[cell].hasHouse
 #define isBlockedByEnemyTrainer(cell) \
