@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 #include <algorithm>
+#include <cassert>
 
 using namespace std;
 using namespace chrono;
@@ -14,14 +15,6 @@ static constexpr int MAX_STEPS = 300;
 
 static constexpr int FIELD_WIDTH = 12;
 static constexpr int FIELD_HEIGHT = 9;
-
-void abortDebug() {
-#ifdef RELEASE
-    // nope
-#else
-    abort();
-#endif
-}
 
 /******************************************** logging *****************************************************************/
 #ifdef LOCAL_RUN
@@ -333,7 +326,7 @@ struct Field {
         switch (checkMove(move)) {
             case ILLEGAL_MOVE:
                 lout << logErr << "illegal move " << move << endl;
-                abortDebug();
+                assert(false && "illegal move");
                 break;
             case NO_MOVE:
                 // Do nothing
