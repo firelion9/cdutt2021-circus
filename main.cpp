@@ -269,8 +269,8 @@ struct Field {
         // For magician
         const Entity targetEntity = (*this)[move.to].entity;
         // For strongman
-        const Cell nextCell{move.to.row + 2 * difRow,
-                            move.to.col + 2 * difCol};
+        const Cell nextCell{move.to.row + difRow,
+                            move.to.col + difCol};
 
         switch (entityType) {
             case Entity::CLOWN:
