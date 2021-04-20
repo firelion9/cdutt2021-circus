@@ -617,8 +617,8 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
 
         // Score for houses
         if (state.field[cell].hasHouse) {
-            if (my) score += 50;
-            else score -= 50;
+            if (my) score += 450;
+            else score -= 150;
 
             continue;
         }
@@ -680,6 +680,18 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
             score -= 11 - cell.col;
         } else {
             score += 11 - cell.col;
+        }
+
+        int dst = 1000;
+        for (auto house : state.field.freeHouses) {
+            dst = min(dst, abs(cell.row - house.row) + abs(cell.col - house.col));
+        }
+        if (dst == 1000) dst = 0;
+
+        if (my) {
+            score -= 2 * dst;
+        } else {
+            score += 2 * dst;
         }
     }
 
