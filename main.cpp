@@ -18,9 +18,7 @@ static constexpr int FIELD_HEIGHT = 9;
 
 /******************************************** solution constants ******************************************************/
 
-static constexpr int DO_MOVE_RECURSION_DEPTH = 1;
-
-static constexpr int SCORE_FOR_CAPTURED_HOUSE = 450;
+static constexpr int SCORE_FOR_CAPTURED_HOUSE = 1000;
 static constexpr int SCORE_FOR_LOST_HOUSE = -150;
 
 
@@ -28,31 +26,31 @@ static constexpr int SCORE_FOR_UNINHABITED_FRIEND_CLOWN = -100;
 static constexpr int SCORE_FOR_BLOCKED_FRIEND_CLOWN = -100;
 
 static constexpr int SCORE_FOR_UNINHABITED_ENEMY_CLOWN = 1000;
-static constexpr int SCORE_FOR_BLOCKED_ENEMY_CLOWN = 200;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_CLOWN = 10;
 
 
 static constexpr int SCORE_FOR_UNINHABITED_FRIEND_STRONGMAN = -50;
 static constexpr int SCORE_FOR_BLOCKED_FRIEND_STRONGMAN = -150;
 
 static constexpr int SCORE_FOR_UNINHABITED_ENEMY_STRONGMAN = 100;
-static constexpr int SCORE_FOR_BLOCKED_ENEMY_STRONGMAN = 250;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_STRONGMAN = 25;
 
 
 static constexpr int SCORE_FOR_UNINHABITED_FRIEND_ACROBAT = -20;
 static constexpr int SCORE_FOR_BLOCKED_FRIEND_ACROBAT = -300;
 
 static constexpr int SCORE_FOR_UNINHABITED_ENEMY_ACROBAT = 50;
-static constexpr int SCORE_FOR_BLOCKED_ENEMY_ACROBAT = 200;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_ACROBAT = 20;
 
 
 static constexpr int SCORE_FOR_UNINHABITED_FRIEND_MAGICIAN = -20;
 static constexpr int SCORE_FOR_BLOCKED_FRIEND_MAGICIAN = -500;
 
 static constexpr int SCORE_FOR_UNINHABITED_ENEMY_MAGICIAN = -10;
-static constexpr int SCORE_FOR_BLOCKED_ENEMY_MAGICIAN = 400;
+static constexpr int SCORE_FOR_BLOCKED_ENEMY_MAGICIAN = 40;
 
 
-static constexpr int SCORE_FOR_UNINHABITED_FRIEND_TRAINER = -30;
+static constexpr int SCORE_FOR_UNINHABITED_FRIEND_TRAINER = -SCORE_FOR_CAPTURED_HOUSE;
 
 static constexpr int SCORE_FOR_UNINHABITED_ENEMY_TRAINER = -10;
 
@@ -653,6 +651,20 @@ vector<Move> allAvailableMoves(const State &state) {
     return res;
 }
 
+int distanceToNearestHouse(const State &state, const Cell &cell) {
+    int dst = 1000;
+    for (auto house : state.field.freeHouses) {
+        dst = min(dst, abs(cell.row - house.row) + abs(cell.col - house.col));
+    }
+    if (dst == 1000) dst = 0;
+
+    return dst;
+}
+
+int distanceToNearestHouse(const State &state, const Entity &entity) {
+    return distanceToNearestHouse(state, state.field.positions.at(entity.id));
+}
+
 int stateScore(const State &state) {
     Timer __timer("stateScore");
     int score = 0;
@@ -747,11 +759,7 @@ enemyTrainerActive && Field::isBlockedByTrainer(enemyTrainerCell, cell) && !stat
             score += SCORE_DISTANCE_TO_END_MULTIPLIER * (11 - cell.col);
         }
 
-        int dst = 1000;
-        for (auto house : state.field.freeHouses) {
-            dst = min(dst, abs(cell.row - house.row) + abs(cell.col - house.col));
-        }
-        if (dst == 1000) dst = 0;
+        int dst = distanceToNearestHouse(state, cell);
 
         if (my) {
             score -= SCORE_DISTANCE_TO_HOUSE_MULTIPLIER * dst;
@@ -776,8 +784,7 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
         tmp.doMove(move);
 
         int score;
-        if (depth > 0) score = chooseBestMoveRecursive(tmp, depth - 1).first;
-        else score = stateScore(tmp);
+        score = stateScore(tmp);
 
         movesWithScore.emplace_back(score, move);
 
@@ -787,6 +794,30 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
     sort(movesWithScore.begin(), movesWithScore.end(),
          [](const pair<int, Move> &left, const pair<int, Move> &right) { return left.first < right.first; });
 
+    if (state.currentPlayer == state.myPlayer) {
+        int minScore = movesWithScore.back().first - 50;
+        while (movesWithScore.front().first < minScore) {
+            movesWithScore.erase(movesWithScore.begin());
+        }
+    } else {
+        int maxScore = movesWithScore.back().first + 50;
+        while (movesWithScore.back().first > maxScore) {
+            movesWithScore.pop_back();
+        }
+    }
+
+    if (depth > 0) {
+        for (auto &move : movesWithScore) {
+            tmp.doMove(move.second);
+
+            move.first = chooseBestMoveRecursive(tmp, depth - 1).first;
+
+            tmp = state;
+        }
+    }
+
+    sort(movesWithScore.begin(), movesWithScore.end(),
+         [](const pair<int, Move> &left, const pair<int, Move> &right) { return left.first < right.first; });
 
     if (state.currentPlayer == state.myPlayer) return movesWithScore.back();
     else return movesWithScore.front();
@@ -794,7 +825,42 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
 
 Move doMove(const State &state) {
     Timer __timer("doMove");
-    auto moveInfo = chooseBestMoveRecursive(state, DO_MOVE_RECURSION_DEPTH);
+    int movesCount = allAvailableMoves(state).size();
+    int depth = floor(log(200.0) / log(movesCount * 1.0));
+    lout << logInfo << "depth params: movesCount = " << movesCount << " depth = " << depth << endl;
+
+
+    Entity acrobat = Entity(state.myPlayer, Entity::ACROBAT);
+    Entity magician = Entity(state.myPlayer, Entity::MAGICIAN);
+    Entity clown1 = Entity(state.myPlayer, Entity::CLOWN, false);
+    Entity clown2 = Entity(state.myPlayer, Entity::CLOWN, true);
+
+    if (distanceToNearestHouse(state, acrobat) <= 2 && distanceToNearestHouse(state, magician) > 2) {
+        const Move move = Move{
+                state.field.positions.at(magician.id),
+                state.field.positions.at(acrobat.id)};
+
+        if (state.field.checkMove(move)) return move;
+    }
+
+    if (distanceToNearestHouse(state, magician) <= 2) {
+        if (distanceToNearestHouse(state, clown1) > 2) {
+            const Move move = Move{
+                    state.field.positions.at(magician.id),
+                    state.field.positions.at(clown1.id)};
+
+            if (state.field.checkMove(move)) return move;
+        }
+        if (distanceToNearestHouse(state, clown2) > 2) {
+            const Move move = Move{
+                    state.field.positions.at(magician.id),
+                    state.field.positions.at(clown2.id)};
+
+            if (state.field.checkMove(move)) return move;
+        }
+    }
+
+    auto moveInfo = chooseBestMoveRecursive(state, depth);
     lout << logInfo << "choose move " << moveInfo.second << " with score " << moveInfo.first << endl;
 
     return moveInfo.second;

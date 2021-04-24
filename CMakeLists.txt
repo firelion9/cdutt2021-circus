@@ -10,3 +10,6 @@ target_compile_definitions(player1 PUBLIC LOG_FILE="log1.txt")
 add_executable(player2 main.cpp)
 target_compile_definitions(player2 PUBLIC LOCAL_RUN)
 target_compile_definitions(player2 PUBLIC LOG_FILE="log2.txt")
+
+
+add_executable(default main.cpp)
