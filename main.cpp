@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 #include <algorithm>
-
+#include <cassert>
 
 using namespace std;
 using namespace chrono;
@@ -407,8 +407,6 @@ istream &operator>>(istream &in, Move &move) {
 
     move.from.col = str[0] - 'A';
     move.from.row = str[1] - '1';
-
-    if (str[2] != '-')
 
     move.to.col = str[3] - 'A';
     move.to.row = str[4] - '1';
