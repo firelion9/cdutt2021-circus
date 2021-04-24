@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 #include <algorithm>
-#include <cassert>
+
 
 using namespace std;
 using namespace chrono;
@@ -57,100 +57,6 @@ static constexpr int SCORE_FOR_UNINHABITED_ENEMY_TRAINER = -10;
 
 static constexpr int SCORE_DISTANCE_TO_END_MULTIPLIER = 1;
 static constexpr int SCORE_DISTANCE_TO_HOUSE_MULTIPLIER = 2;
-
-/******************************************** logging *****************************************************************/
-#ifdef LOCAL_RUN
-
-#include <fstream>
-
-struct LogObj {
-    ofstream out = ofstream(LOG_FILE);
-
-    ~LogObj() {
-        out.close();
-    }
-};
-
-template<typename T>
-inline LogObj &operator<<(LogObj &out, const T &val) {
-    out.out << val;
-    return out;
-}
-
-inline LogObj &endl(LogObj &out) {
-    out.out << endl;
-    return out;
-}
-
-#else
-
-struct LogObj {
-};
-
-template<typename T>
-inline LogObj &operator<<(LogObj &out, const T &val) {
-    return out;
-}
-
-inline LogObj &endl(LogObj &out) {
-    return out;
-}
-
-#endif
-
-inline LogObj &operator<<(LogObj &s, LogObj &(*pf)(LogObj &)) {
-    return pf(s);
-}
-
-const auto startPoint = chrono::steady_clock::now();
-
-inline LogObj &now(LogObj &out) {
-    out << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - startPoint).count() << "ms";
-    return out;
-}
-
-inline LogObj &logHeader(LogObj &out) {
-    out << now << "\t";
-    return out;
-}
-
-inline LogObj &logErr(LogObj &out) {
-    out << logHeader << "err" << "\t";
-    return out;
-}
-
-inline LogObj &logInfo(LogObj &out) {
-    out << logHeader << "info" << "\t";
-    return out;
-}
-
-inline LogObj &logVerb(LogObj &out) {
-    out << logHeader << "verb" << "\t";
-    return out;
-}
-
-LogObj lout; // NOLINT(cert-err58-cpp)
-
-
-/******************************************** timer *******************************************************************/
-
-struct Timer {
-private:
-    string tag;
-    chrono::time_point<chrono::steady_clock> start = chrono::steady_clock::now();
-
-public:
-    Timer(const string tag) {
-        this->tag = tag;
-    }
-
-    ~Timer() {
-        lout << logInfo << "time of execution for tag '" << tag << "' " << "is "
-             << (chrono::steady_clock::now() - start).count()
-             << "ns = "
-             << (chrono::steady_clock::now() - start).count() / 1000000.0 << "ms" << endl;
-    }
-};
 
 /******************************************** game structures *********************************************************/
 
@@ -376,28 +282,26 @@ struct Field {
     }
 
     void doMove(const Move move) {
-        lout << logVerb << "doing move " << move << "..." << endl;
-
         switch (checkMove(move)) {
             case ILLEGAL_MOVE:
-                lout << logErr << "illegal move " << move << endl;
-                assert(false && "illegal move");
+
+
                 break;
             case NO_MOVE:
                 // Do nothing
-                lout << logVerb << "move " << move << " is a Z0-Z0 move" << endl;
+
                 break;
             case BASE_MOVE:
             case DOUBLE_MOVE:
-                lout << logVerb << "move " << move << " is a base or double move" << endl;
+
                 baseOrDoubleMove(move);
                 break;
             case SWAP:
-                lout << logVerb << "move " << move << " is a swap" << endl;
+
                 swapMove(move);
                 break;
             case PUSH:
-                lout << logVerb << "move " << move << " is a push" << endl;
+
                 pushMove(move);
                 break;
         }
@@ -477,7 +381,7 @@ struct State {
 /******************************************** game I/O ****************************************************************/
 
 istream &operator>>(istream &in, Cell &cell) {
-    lout << logVerb << "reading a cell..." << endl;
+
 
     string str;
     in >> str;
@@ -485,7 +389,7 @@ istream &operator>>(istream &in, Cell &cell) {
     cell.col = str[0] - 'A';
     cell.row = str[1] - '1';
 
-    lout << logVerb << "cell '" << cell << "' was read" << endl;
+
 
     return in;
 }
@@ -496,7 +400,7 @@ ostream &operator<<(ostream &out, const Cell cell) {
 }
 
 istream &operator>>(istream &in, Move &move) {
-    lout << logVerb << "reading a move..." << endl;
+
 
     string str;
     in >> str;
@@ -504,12 +408,12 @@ istream &operator>>(istream &in, Move &move) {
     move.from.col = str[0] - 'A';
     move.from.row = str[1] - '1';
 
-    if (str[2] != '-') lout << logErr << "unexpected symbol when reading move: '" << str << "'" << endl;
+    if (str[2] != '-')
 
     move.to.col = str[3] - 'A';
     move.to.row = str[4] - '1';
 
-    lout << logVerb << "move '" << move << "' was read" << endl;
+
 
     return in;
 }
@@ -564,7 +468,7 @@ void mainLoop(State &);
 Move doMove(const State &);
 
 int main() {
-    lout << logInfo << "starting" << endl;
+
 
     State state;
     cin >> state;
@@ -666,7 +570,7 @@ int distanceToNearestHouse(const State &state, const Entity &entity) {
 }
 
 int stateScore(const State &state) {
-    Timer __timer("stateScore");
+
     int score = 0;
 
     const int player = state.myPlayer,
@@ -824,10 +728,10 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
 }
 
 Move doMove(const State &state) {
-    Timer __timer("doMove");
+
     int movesCount = allAvailableMoves(state).size();
     int depth = floor(log(200.0) / log(movesCount * 1.0));
-    lout << logInfo << "depth params: movesCount = " << movesCount << " depth = " << depth << endl;
+
 
 
     Entity acrobat = Entity(state.myPlayer, Entity::ACROBAT);
@@ -861,7 +765,7 @@ Move doMove(const State &state) {
     }
 
     auto moveInfo = chooseBestMoveRecursive(state, depth);
-    lout << logInfo << "choose move " << moveInfo.second << " with score " << moveInfo.first << endl;
+
 
     return moveInfo.second;
 }
