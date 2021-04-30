@@ -229,6 +229,11 @@ struct Field {
         if ((*this)[move.to].entity.type == Entity::NONE_TYPE) {
             if (targetIsHouse) {
                 if (abs(difCol) + abs(difRow) == 1) return BASE_MOVE;
+                else if (abs(difCol) + abs(difRow) == 2
+                         && abs(difCol) * abs(difRow) == 0
+                         && entityType == Entity::ACROBAT)
+                    return DOUBLE_MOVE;
+                else return ILLEGAL_MOVE;
             } else {
                 if (abs(difRow) <= 1 && abs(difCol) <= 1) return BASE_MOVE;
             }
@@ -390,7 +395,6 @@ istream &operator>>(istream &in, Cell &cell) {
     cell.row = str[1] - '1';
 
 
-
     return in;
 }
 
@@ -410,7 +414,6 @@ istream &operator>>(istream &in, Move &move) {
 
     move.to.col = str[3] - 'A';
     move.to.row = str[4] - '1';
-
 
 
     return in;
@@ -547,9 +550,6 @@ vector<Move> allAvailableMoves(const State &state) {
         addMoveIfLegal(state, res, {position, assistantPosition});
     }
 
-    // No move
-    res.push_back(NONE_MOVE);
-
     return res;
 }
 
@@ -682,6 +682,8 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
     vector<Move> allMoves = allAvailableMoves(state);
     vector<pair<int, Move>> movesWithScore;
 
+    if (allMoves.empty()) allMoves.push_back(NONE_MOVE);
+
     for (Move move : allMoves) {
         tmp.doMove(move);
 
@@ -728,8 +730,7 @@ pair<int, Move> chooseBestMoveRecursive(const State &state, int depth) {
 Move doMove(const State &state) {
 
     int movesCount = allAvailableMoves(state).size();
-    int depth = floor(log(200.0) / log(movesCount * 1.0));
-
+    int depth = floor(log(150.0) / log(movesCount * 1.0));
 
 
     Entity acrobat = Entity(state.myPlayer, Entity::ACROBAT);
